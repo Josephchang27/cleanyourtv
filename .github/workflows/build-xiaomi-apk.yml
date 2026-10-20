@@ -1,0 +1,65 @@
+name: Build CleanYourTV for Xiaomi MiTV-MZTU0
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build-xiaomi-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile Xiaomi-specific APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out official CleanYourTV 2.4.0
+        uses: actions/checkout@v4
+        with:
+          repository: Gathin23/cleanyourtv
+          ref: v2.4.0
+          persist-credentials: false
+
+      - name: Configure Xiaomi TV inputs and live TV
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path("launcher/app/src/main/res/values/config.xml")
+          content = file.read_text(encoding="utf-8")
+          old = '<string name="live_tv_package" translatable="false">com.mediatek.wwtv.tvcenter</string>'
+          new = '<string name="live_tv_package" translatable="false">com.mitv.livetv</string>'
+          assert content.count(old) == 1, "Unexpected upstream config; refusing to build"
+          file.write_text(content.replace(old, new), encoding="utf-8")
+          PY
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK Platform 34
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile signed APK
+        working-directory: launcher
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          test -f app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish APK for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanYourTV-MiTV-MZTU0-v2.4.0
+          path: launcher/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
